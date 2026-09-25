@@ -1,0 +1,39 @@
+# Compiled binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+
+# Go build & test output
+coverage.out
+*.out
+*.prof
+*.cpu
+*.mem
+
+# Vendor (use go modules)
+vendor/
+
+# IDE & editor configs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# AI / orchestration agents (not source code)
+.agents/
+
+# Fuzz corpus (auto-generated)
+testdata/fuzz/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temp & logs
+tmp/
+*.log
+.cache/

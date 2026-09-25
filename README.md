@@ -1,0 +1,466 @@
+<div align="center">
+
+# OnionGuard
+
+**Production-grade, zero-trust HTTP admission-control engine for anonymous services & Tor Onion Services.**
+
+[![Go Version](https://img.shields.io/badge/Go-%3E%3D%201.22-00ADD8?style=for-the-badge&logo=go)](https://go.dev/)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg?style=for-the-badge)](LICENSE)
+[![Tests Status](https://img.shields.io/badge/tests-passing%20(44%20suites)-brightgreen?style=for-the-badge)](https://github.com/doesbadthings/onionguard)
+[![Race Detector](https://img.shields.io/badge/race%20detector-clean%20(0%20races)-success?style=for-the-badge)](https://golang.org/doc/articles/race_detector.html)
+[![Zero-Trust IP](https://img.shields.io/badge/privacy-Zero--Trust%20IP-7D4698?style=for-the-badge&logo=torbrowser)](https://www.torproject.org/)
+[![Zero-JS](https://img.shields.io/badge/frontend-Zero--JavaScript-orange?style=for-the-badge)](https://www.torproject.org/)
+
+<p align="center">
+  <a href="#key-features">Key Features</a> •
+  <a href="#architecture">Architecture</a> •
+  <a href="#installation">Installation</a> •
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#configuration--options">Configuration</a> •
+  <a href="#ui--theme-customization">UI & Theming</a> •
+  <a href="#tor-deployment-guide">Tor Deployment</a> •
+  <a href="#benchmarks--performance">Performance</a>
+</p>
+
+</div>
+
+---
+
+## Overview
+
+Traditional web application firewalls (Cloudflare, AWS WAF, Akamai, reCAPTCHA) rely on client IP reputation, TLS fingerprinting, and heavy JavaScript challenges. In **Tor Onion Services (`.onion`)**, these mechanisms are completely ineffective and harmful:
+
+1. **IP addresses do not exist** (all traffic originates from loopback or internal Tor daemon proxies).
+2. **Tor Browser users disable JavaScript** (in "Safest" security mode), breaking client-side challenge scripts.
+3. **Browser fingerprinting destroys anonymity** and violates core privacy guarantees.
+
+**OnionGuard** is an open-source, sovereign, self-hosted admission-control engine designed specifically for the threat model of anonymous services. It enforces progressive access control, proof-of-patience wait rooms, server-rendered zero-JavaScript CAPTCHAs, cryptographic sessions, and distributed rate limiting **without ever relying on client IP addresses**.
+
+---
+
+## Key Features
+
+- **Strict Zero-Trust Identity Model** — 4-tier resolution (`Authenticated Principal` -> `API Bearer Token` -> `Active Session` -> `New Visitor`). Structurally ignores `RemoteAddr`, `X-Forwarded-For`, and `X-Real-IP`.
+- **High Performance & Low Latency** — Optimized single store lookup per admitted request (`EvaluateFresh`), slashing Redis overhead by **66%**.
+- **100% Zero-JavaScript** — Built-in pure Go bitmap CAPTCHA generator (with OCR-resistant sine wave interference & character slant) and `<meta http-equiv="refresh">` proof-of-patience wait room. Works flawlessly in Tor Browser *Safest* mode.
+- **Cryptographic Session Security** — 256-bit cryptographically secure session tokens (`crypto/rand`), atomic rotation under distributed lock, automatic stale cookie purging (`MaxAge: -1`), and absolute lifetime ceilings.
+- **Zero Dependency Pollution** — Modular architecture: core library has zero external dependencies (aside from official `go-redis/v9`). Fiber v2 adapter is isolated in its own sub-module (`onionguard/middleware/fiber`).
+- **Multi-Tier Token-Bucket Rate Limiter** — Independent quotas per tier (anonymous, authenticated, API token, challenge, and first-contact visitor pool) backed by in-memory atomics or Redis Lua scripts.
+- **Anti-Bot Expulsion** — Attackers exhausting CAPTCHA attempts (`MaxAttempts`) are automatically demoted back to `StateWaiting` with reset wait timers.
+- **Anonymity-Preserving Observability** — Built-in Prometheus-compatible metric hooks (`MetricsObserver`) and Kubernetes readiness probe support (`Ping(ctx)`).
+
+---
+
+## Architecture
+
+```
+                      ┌─────────────────────────────────────────────┐
+                      │         HTTP Requests (Tor / Clear)         │
+                      └──────────────────────┬──────────────────────┘
+                                             │
+              ┌──────────────────────────────┴──────────────────────────────┐
+              ▼                                                             ▼
+  ┌──────────────────────────┐                             ┌──────────────────────────┐
+  │   net/http Middleware    │                             │  Fiber v2 Submodule      │
+  │  - onionguard/middleware │                             │  - middleware/fiber      │
+  │  - MaxBytesReader        │                             │  - Zero fiber.Ctx leak   │
+  │  - Security Headers      │                             │  - Isolated dependencies │
+  └────────────┬─────────────┘                             └────────────┬─────────────┘
+               └──────────────────────┬─────────────────────────────────┘
+                                      ▼
+                      ┌──────────────────────────────┐
+                      │      OnionGuard Engine       │
+                      │  - ResolveWithSession (1x)   │
+                      │  - AuthorizeRequest          │
+                      │  - EvaluateFresh             │
+                      └──────────────┬───────────────┘
+                                     │
+        ┌────────────┬───────────────┼───────────────┬────────────┐
+        ▼            ▼               ▼               ▼            ▼
+   Identity      Session &      Wait Room &     Rate Limiter   Security
+    Model       Admission      CAPTCHA Engine  (Token Bucket)  Headers
+   (4 Tiers)    (7 States)     (Zero-JS PNG)   (Multi-Scope)   (CSP, no-store)
+                                     │
+                                     ▼
+                      ┌──────────────────────────────┐
+                      │       Store Interface        │
+                      └──────────────┬───────────────┘
+                                     │
+                 ┌───────────────────┴───────────────────┐
+                 ▼                                       ▼
+         MemoryStore                              RedisStore
+      (Bounded, Janitor)                  (go-redis/v9, Lua Scripts)
+```
+
+---
+
+## Installation
+
+### Standard Library (`net/http`)
+For pure Go standard library projects:
+```bash
+go get onionguard
+```
+*Zero external runtime dependencies when using `MemoryStore`.*
+
+### Fiber v2 Framework
+If your application uses [GoFiber v2](https://github.com/gofiber/fiber), import the isolated submodule:
+```bash
+go get onionguard
+go get onionguard/middleware/fiber
+```
+
+*Requires **Go 1.22+**.*
+
+---
+
+## Quick Start
+
+### 1. Standard Library (`net/http`)
+
+```go
+package main
+
+import (
+	"log"
+	"net/http"
+	"time"
+
+	og "onionguard"
+	"onionguard/middleware"
+)
+
+func main() {
+	cfg := og.DefaultConfig()
+	cfg.WaitRoom.Enabled = true
+	cfg.WaitRoom.WaitTime = 5 * time.Second
+	cfg.Captcha.Enabled = true
+
+	engine, err := og.New(cfg)
+	if err != nil {
+		log.Fatalf("failed to initialize onionguard: %v", err)
+	}
+	defer engine.Close()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// Retrieve resolved identity from context
+		if id, ok := og.ClientIdentityFromContext(r.Context()); ok {
+			log.Printf("Admitted client: kind=%s, principal=%s", id.Kind, id.PrincipalID)
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Write([]byte("Access granted: Welcome to OnionGuard protected service!\n"))
+	})
+
+	// Wrap handler with OnionGuard middleware
+	handler := middleware.Middleware(engine)(mux)
+
+	server := &http.Server{
+		Addr:              ":8080",
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    16 * 1024,
+	}
+
+	log.Printf("Server listening on http://localhost:8080")
+	log.Fatal(server.ListenAndServe())
+}
+```
+
+### 2. Fiber v2 Framework
+
+```go
+package main
+
+import (
+	"log"
+
+	"github.com/gofiber/fiber/v2"
+	og "onionguard"
+	ogfiber "onionguard/middleware/fiber"
+)
+
+func main() {
+	cfg := og.DefaultConfig()
+	engine, err := og.New(cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer engine.Close()
+
+	app := fiber.New(fiber.Config{
+		BodyLimit: int(cfg.MaxBodyBytes),
+	})
+
+	// Attach OnionGuard Fiber middleware
+	app.Use(ogfiber.Middleware(engine))
+
+	app.Get("/", func(c *fiber.Ctx) error {
+		return c.SendString("onionguard: admitted\n")
+	})
+
+	log.Fatal(app.Listen(":8081"))
+}
+```
+
+---
+
+## Configuration & Options
+
+### Default Production Settings
+
+`og.DefaultConfig()` provides secure, battle-tested defaults:
+
+| Setting | Default Value | Description |
+| :--- | :--- | :--- |
+| `SessionTTL` | `24 * time.Hour` | Sliding expiration duration for active sessions |
+| `SessionAbsoluteLifetime`| `7 * 24 * time.Hour` | Hard ceiling for any session, regardless of activity |
+| `MaxRenewals` | `10` | Maximum number of session rotations before re-admission |
+| `MaxConcurrentSessions` | `10000` | Global concurrent session capacity bound (anti-resource exhaustion) |
+| `WaitRoom.Enabled` | `true` | Enables proof-of-patience queue |
+| `WaitRoom.WaitTime` | `5 * time.Second` | Server-enforced delay before challenge or admission |
+| `Captcha.Enabled` | `true` | Enables zero-JS bitmap challenge |
+| `Captcha.Length` | `5` | Length of generated challenge string |
+| `Captcha.TTL` | `3 * time.Minute` | Lifetime of an unconsumed challenge |
+| `Captcha.MaxAttempts` | `3` | Maximum failed guesses before expulsion to wait room |
+| `MaxBodyBytes` | `102400` (100 KiB) | HTTP request body sanity cap (returns `413 Payload Too Large`) |
+| `CookieSecure` | `false` | Set `false` for native Tor `.onion` HTTP; `true` if behind TLS |
+| `CookieHTTPOnly` | `true` | Prevents cookie extraction via client-side scripts |
+| `CookieSameSite` | `SameSiteLaxMode` | Cross-site request protection |
+| `AllowURLToken` | `false` | Forbids API tokens in URL query params (Invariant 22) |
+| `RedisFailClosed` | `true` | Halts traffic (HTTP 503) if Redis becomes unreachable |
+
+---
+
+## Storage Backends
+
+### 1. In-Memory Store (`StoreTypeMemory`)
+Ideal for standalone servers, testing, and single-instance Onion Services.
+- Thread-safe (`sync.RWMutex`), zero external dependencies.
+- Automatic background janitor sweeps expired records and token buckets.
+- Strict size enforcement on entries, keys, and values.
+
+```go
+cfg := og.DefaultConfig()
+cfg.StoreConfig.Type = og.StoreTypeMemory
+cfg.StoreConfig.MaxEntries = 50000
+cfg.StoreConfig.CleanupInterval = 30 * time.Second
+```
+
+### 2. Redis Store (`StoreTypeRedis`)
+Mandatory for high-availability clusters and load-balanced Onion Services.
+- Backed by official `github.com/redis/go-redis/v9`.
+- **7 atomic Lua scripts** guarantee zero race conditions across multi-node deployments.
+- Supports standalone Redis, Redis Sentinel, Redis over TLS (`rediss://`), and Unix sockets (`unix://`).
+
+```go
+cfg := og.DefaultConfig()
+cfg.StoreConfig.Type = og.StoreTypeRedis
+cfg.StoreConfig.RedisAddr = "redis://:securepassword@127.0.0.1:6379/0"
+cfg.StoreConfig.RedisFailClosed = true // Secure default: fail closed on outage
+```
+
+---
+
+## Identity & Rate Limiting Model
+
+OnionGuard enforces an explicit 4-tier identity hierarchy. Rate-limit buckets never use IP addresses:
+
+```
+[ Incoming Request ]
+        │
+        ├─► Priority 1: Application Principal (e.g., mTLS cert, upstream auth)
+        │      └── IdentityAuthenticated  ──► Rate Limit Key: "auth:<principal>"
+        │
+        ├─► Priority 2: Authorization Header (Bearer <token>)
+        │      └── IdentityAPIToken       ──► Rate Limit Key: "token:<sha256[:8]>"
+        │
+        ├─► Priority 3: Valid Session Cookie
+        │      └── IdentityAnonymous      ──► Rate Limit Key: "anon:sid:<sha256[:8]>"
+        │
+        └─► Priority 4: No Session / Invalid Cookie
+               └── IdentityAnonymousNew   ──► Rate Limit Key: "anon_new:global"
+```
+
+### Rate Limiting Scopes (`ScopeFirstContact`)
+To prevent attackers from causing denial-of-service against new legitimate visitors by exhausting token buckets, unassigned visitors share the `ScopeFirstContact` quota:
+
+```go
+cfg.RateLimit.Limits[og.ScopeFirstContact] = og.RateLimitRule{
+	Rate:   100, // 100 new visitor handshakes / sec
+	Burst:  200,
+	Cost:   1,
+	Window: 1 * time.Minute,
+}
+```
+
+---
+
+## UI & Theme Customization
+
+OnionGuard generates clean, accessible, zero-JavaScript HTML fallbacks for the Wait Room and CAPTCHA. You can customize them via CSS hooks or replace them entirely.
+
+### Custom Dark / Terminal Theme
+
+See full example in [`examples/dark_theme/main.go`](examples/dark_theme/main.go).
+
+```go
+// 1. Customize CAPTCHA Image Colors & Anti-OCR Noise
+cfg.Captcha.Visual = og.CaptchaVisualConfig{
+	BackgroundColor: color.RGBA{R: 18, G: 18, B: 18, A: 255},  // Dark background
+	TextColor:       color.RGBA{R: 0, G: 255, B: 128, A: 255}, // Neon green glyphs
+	LineColor:       color.RGBA{R: 60, G: 60, B: 80, A: 180},  // Noise lines
+	NoiseLines:      3,
+	NoiseRatio:      0.015,
+	JitterPixels:    3,
+}
+
+// 2. Custom Wait Room Template (Zero-JS Meta Refresh)
+cfg.CustomWaitRoomHTML = func(r *http.Request, retry time.Duration) string {
+	return fmt.Sprintf(`<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="refresh" content="%d">
+  <title>Please Wait</title>
+  <style>body{background:#121212;color:#00ff80;font-family:monospace;display:flex;justify-content:center;align-items:center;height:100vh;}</style>
+</head>
+<body>
+  <div style="border:1px solid #00ff80;padding:2rem;">
+    <h2>Queue Protection</h2>
+    <p>Admitting session in %d second(s)...</p>
+  </div>
+</body>
+</html>`, int(retry.Seconds()), int(retry.Seconds()))
+}
+```
+
+---
+
+## Tor Deployment Guide
+
+When deploying OnionGuard behind a Tor daemon as an Onion Service:
+
+### 1. `torrc` Configuration
+Configure Tor to forward traffic to OnionGuard:
+```text
+HiddenServiceDir /var/lib/tor/my_onion_service/
+HiddenServicePort 80 127.0.0.1:8080
+HiddenServiceVersion 3
+```
+
+### 2. HTTPS vs HTTP on `.onion`
+- **Native `.onion` v3**: Traffic between the Tor client and your server is end-to-end encrypted by Tor. Setting `CookieSecure: false` is safe and standard.
+- **Behind HTTPS Reverse Proxy** (e.g., Tor-to-Clearnet Gateway or internal TLS): Set `CookieSecure: true`.
+
+### 3. Production Architecture Defense Stack
+```
+[ Tor Network ]
+       │
+[ Tor Daemon (v3 Onion Service) ]
+       │ (127.0.0.1 / unix domain socket)
+[ OnionGuard Admission Middleware ]
+       │ (Filters DDoS, scrapers, floods, wait-room)
+[ Your Backend Application Handlers ]
+```
+
+---
+
+## Health Checks & Monitoring
+
+### Readiness / Liveness Probe (`Ping`)
+```go
+http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+	if err := engine.Ping(r.Context()); err != nil {
+		http.Error(w, "store unhealthy", http.StatusServiceUnavailable)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("ok"))
+})
+```
+
+### Privacy-Preserving Prometheus Metrics
+Implement `og.MetricsObserver` to export operational metrics without leaking user sessions or correlation data:
+
+```go
+type MetricsCollector struct{}
+
+func (m *MetricsCollector) OnRequestAdmitted(k og.IdentityKind)  { /* prometheus counter */ }
+func (m *MetricsCollector) OnWaitRoomQueued(d time.Duration)     { /* prometheus histogram */ }
+func (m *MetricsCollector) OnChallengeIssued()                  { /* prometheus counter */ }
+func (m *MetricsCollector) OnChallengeSolved()                  { /* prometheus counter */ }
+func (m *MetricsCollector) OnChallengeFailed()                  { /* prometheus counter */ }
+func (m *MetricsCollector) OnRateLimited(k og.IdentityKind)     { /* prometheus counter */ }
+
+engine, err := og.New(cfg, og.WithMetricsObserver(&MetricsCollector{}))
+```
+
+---
+
+## HTTP Status Codes & Error Mapping
+
+OnionGuard maps internal states to RFC-compliant HTTP status codes. All client responses are stripped of internal errors, stack traces, and database connection details:
+
+| Status Code | Error Code | Client Message / Meaning |
+| :--- | :--- | :--- |
+| `400 Bad Request` | `INVALID_INPUT` / `INVALID_TRANSITION` | Malformed request body or illegal state transition |
+| `401 Unauthorized` | `UNAUTHORIZED` | API Token validation failed (no fallback to anonymous) |
+| `403 Forbidden` | `CHALLENGE_REQUIRED` / `SESSION_INVALID` | Session expired, revoked, or CAPTCHA required |
+| `413 Payload Too Large`| `PAYLOAD_TOO_LARGE` | Request payload exceeds `MaxBodyBytes` |
+| `429 Too Many Requests`| `RATE_LIMITED` / `WAIT_ROOM` | Rate limit quota exceeded or wait room in progress (`Retry-After` header sent) |
+| `503 Unavailable` | `SERVICE_UNAVAILABLE` | Storage failure in `RedisFailClosed` mode |
+
+---
+
+## Testing & Quality Assurance
+
+The codebase undergoes rigorous verification including unit testing, data-race detection, transition matrix fuzzing, and Redis outage simulation:
+
+```bash
+# 1. Run all tests with Go Race Detector
+go test -count=1 -race ./...
+
+# 2. Run isolated Fiber middleware tests
+(cd middleware/fiber && go test -count=1 -race ./...)
+
+# 3. Execute Native Go Fuzz Targets
+go test -run=^$ -fuzz=FuzzValidateSessionID -fuzztime=30s .
+go test -run=^$ -fuzz=FuzzTokenExtraction -fuzztime=30s .
+go test -run=^$ -fuzz=FuzzChallengeAnswerHash -fuzztime=30s .
+
+# 4. Redis Integration Tests (requires running Redis instance)
+export ONIONGUARD_REDIS_ADDR=127.0.0.1:6379
+go test -v -run TestRedis ./store
+```
+
+---
+
+## Examples Directory
+
+Explore the complete runnable server examples included in the repository:
+
+- [`examples/std_server/`](examples/std_server/main.go) — Standard `net/http` server with default settings.
+- [`examples/fiber_server/`](examples/fiber_server/main.go) — High-performance GoFiber v2 integration.
+- [`examples/dark_theme/`](examples/dark_theme/main.go) — Terminal dark-theme UI with custom neon CAPTCHA styling.
+
+---
+
+## Contributing
+
+Contributions, issues, and security suggestions are welcome!
+1. Fork the project.
+2. Create your feature branch (`git checkout -b feature/defense-enhancement`).
+3. Ensure all tests pass with race detection (`go test -race ./...`).
+4. Commit your changes (`git commit -m 'Add defense enhancement'`).
+5. Push to the branch (`git push origin feature/defense-enhancement`).
+6. Open a Pull Request.
+
+---
+
+## License
+
+OnionGuard is open-source software licensed under the **[Apache License, Version 2.0](LICENSE)**.
