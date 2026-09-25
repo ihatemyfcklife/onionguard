@@ -117,6 +117,14 @@ type StoreConfig struct {
 	RedisReadTimeout  time.Duration // Socket read timeout (default: 2s)
 	RedisWriteTimeout time.Duration // Socket write timeout (default: 2s)
 	RedisPoolTimeout  time.Duration // Connection pool acquisition timeout (default: 3s)
+
+	// Redis Sentinel options (Invariant 1: credentials redacted)
+	RedisSentinelAddrs    []string // Sentinel addresses, e.g. ["127.0.0.1:26379"]
+	RedisSentinelMaster   string   // Sentinel master name, e.g. "mymaster"
+	RedisSentinelPassword string   // Sentinel password (redacted in logs)
+
+	// Redis Cluster options
+	RedisClusterAddrs []string // Cluster node addresses, e.g. ["127.0.0.1:6379", "127.0.0.1:6380"]
 }
 
 // String redacts sensitive credentials (Invariant 1).
@@ -125,8 +133,12 @@ func (s StoreConfig) String() string {
 	if s.RedisPassword != "" {
 		pwdDisplay = "[REDACTED]"
 	}
-	return fmt.Sprintf("StoreConfig{Type:%s, MaxEntries:%d, MaxKeyBytes:%d, MaxValueBytes:%d, RedisAddr:%s, RedisPassword:%s, FailClosed:%t}",
-		s.Type, s.MaxEntries, s.MaxKeyBytes, s.MaxValueBytes, s.RedisAddr, pwdDisplay, s.RedisFailClosed)
+	sentinelPwdDisplay := "[NONE]"
+	if s.RedisSentinelPassword != "" {
+		sentinelPwdDisplay = "[REDACTED]"
+	}
+	return fmt.Sprintf("StoreConfig{Type:%s, MaxEntries:%d, MaxKeyBytes:%d, MaxValueBytes:%d, RedisAddr:%s, RedisPassword:%s, SentinelMaster:%s, SentinelPassword:%s, FailClosed:%t}",
+		s.Type, s.MaxEntries, s.MaxKeyBytes, s.MaxValueBytes, s.RedisAddr, pwdDisplay, s.RedisSentinelMaster, sentinelPwdDisplay, s.RedisFailClosed)
 }
 
 // GoString redacts sensitive credentials for %#v formatting.
@@ -145,6 +157,7 @@ type Config struct {
 	Captcha         CaptchaConfig
 	RateLimit       RateLimitConfig
 	SecurityHeaders SecurityHeadersConfig
+	CircuitBreaker  CircuitBreakerConfig
 
 	// Session Management
 	SessionCookieName       string
@@ -249,6 +262,7 @@ func DefaultConfig() Config {
 			XFrameOptions:         "DENY",
 			ReferrerPolicy:        "no-referrer",
 		},
+		CircuitBreaker:          DefaultCircuitBreakerConfig(),
 		SessionCookieName:       "onionguard_session",
 		SessionTTL:              24 * time.Hour,
 		CookieSecure:            false, // Plain Tor .onion uses HTTP safely over onion encryption
@@ -283,8 +297,8 @@ func (c *Config) Validate() error {
 
 	// Store Validation
 	if c.Store == nil {
-		if c.StoreConfig.Type == StoreTypeRedis && c.StoreConfig.RedisAddr == "" {
-			return errors.New("onionguard: redis address must not be empty")
+		if c.StoreConfig.Type == StoreTypeRedis && c.StoreConfig.RedisAddr == "" && len(c.StoreConfig.RedisSentinelAddrs) == 0 && len(c.StoreConfig.RedisClusterAddrs) == 0 {
+			return errors.New("onionguard: redis address, sentinel addresses, or cluster addresses must not be empty")
 		}
 		if c.StoreConfig.MaxEntries <= 0 {
 			return errors.New("onionguard: store max entries must be greater than 0")
@@ -315,6 +329,16 @@ func (c *Config) Validate() error {
 		}
 		if c.StoreConfig.RedisPoolTimeout < 0 {
 			return errors.New("onionguard: redis pool timeout cannot be negative")
+		}
+	}
+
+	// Circuit Breaker Validation
+	if c.CircuitBreaker.Enabled {
+		if c.CircuitBreaker.FailureThreshold <= 0 {
+			return errors.New("onionguard: circuit breaker failure threshold must be positive")
+		}
+		if c.CircuitBreaker.CoolDown <= 0 {
+			return errors.New("onionguard: circuit breaker cooldown must be positive")
 		}
 	}
 

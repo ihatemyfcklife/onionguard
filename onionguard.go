@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"onionguard/store"
@@ -20,6 +22,11 @@ type Engine struct {
 	tokenValidator     TokenValidator
 	principalExtractor PrincipalExtractor
 	metrics            MetricsObserver
+	circuitBreaker     *CircuitBreaker
+	inFlight           sync.WaitGroup
+	draining           atomic.Bool
+	closed             atomic.Bool
+	closeMu            sync.Mutex
 }
 
 // MetricsObserver is an optional observer interface for monitoring OnionGuard operations.
@@ -33,6 +40,13 @@ type MetricsObserver interface {
 	OnRateLimited(kind IdentityKind)
 }
 
+// ReliabilityObserver is an optional observer interface for monitoring system health and reliability events.
+type ReliabilityObserver interface {
+	OnCircuitBreakerStateChanged(from, to string)
+	OnStoreError(op string, err error)
+	OnLockContention(duration time.Duration, attempts int)
+}
+
 // NoopMetricsObserver implements MetricsObserver with no-op methods.
 type NoopMetricsObserver struct{}
 
@@ -42,6 +56,9 @@ func (NoopMetricsObserver) OnChallengeIssued()             {}
 func (NoopMetricsObserver) OnChallengeSolved()             {}
 func (NoopMetricsObserver) OnChallengeFailed()             {}
 func (NoopMetricsObserver) OnRateLimited(IdentityKind)     {}
+func (NoopMetricsObserver) OnCircuitBreakerStateChanged(string, string) {}
+func (NoopMetricsObserver) OnStoreError(string, error)                 {}
+func (NoopMetricsObserver) OnLockContention(time.Duration, int)          {}
 
 type EngineOption func(*Engine)
 
@@ -81,20 +98,24 @@ func New(cfg Config, opts ...EngineOption) (*Engine, error) {
 			e.ownStore = true
 		case StoreTypeRedis:
 			e.store, err = store.NewRedisStore(store.RedisConfig{
-				Addr:          cfg.StoreConfig.RedisAddr,
-				Password:      cfg.StoreConfig.RedisPassword,
-				DB:            cfg.StoreConfig.RedisDB,
-				Prefix:        cfg.StoreConfig.RedisPrefix,
-				DialTimeout:   cfg.StoreConfig.RedisDialTimeout,
-				FailClosed:    cfg.StoreConfig.RedisFailClosed,
-				MaxKeyBytes:   cfg.StoreConfig.MaxKeyBytes,
-				MaxValueBytes: cfg.StoreConfig.MaxValueBytes,
-				PoolSize:      cfg.StoreConfig.RedisPoolSize,
-				MinIdleConns:  cfg.StoreConfig.RedisMinIdleConns,
-				MaxRetries:    cfg.StoreConfig.RedisMaxRetries,
-				ReadTimeout:   cfg.StoreConfig.RedisReadTimeout,
-				WriteTimeout:  cfg.StoreConfig.RedisWriteTimeout,
-				PoolTimeout:   cfg.StoreConfig.RedisPoolTimeout,
+				Addr:             cfg.StoreConfig.RedisAddr,
+				Password:         cfg.StoreConfig.RedisPassword,
+				DB:               cfg.StoreConfig.RedisDB,
+				Prefix:           cfg.StoreConfig.RedisPrefix,
+				DialTimeout:      cfg.StoreConfig.RedisDialTimeout,
+				FailClosed:       cfg.StoreConfig.RedisFailClosed,
+				MaxKeyBytes:      cfg.StoreConfig.MaxKeyBytes,
+				MaxValueBytes:    cfg.StoreConfig.MaxValueBytes,
+				PoolSize:         cfg.StoreConfig.RedisPoolSize,
+				MinIdleConns:     cfg.StoreConfig.RedisMinIdleConns,
+				MaxRetries:       cfg.StoreConfig.RedisMaxRetries,
+				ReadTimeout:      cfg.StoreConfig.RedisReadTimeout,
+				WriteTimeout:     cfg.StoreConfig.RedisWriteTimeout,
+				PoolTimeout:      cfg.StoreConfig.RedisPoolTimeout,
+				SentinelAddrs:    cfg.StoreConfig.RedisSentinelAddrs,
+				SentinelMaster:   cfg.StoreConfig.RedisSentinelMaster,
+				SentinelPassword: cfg.StoreConfig.RedisSentinelPassword,
+				ClusterAddrs:     cfg.StoreConfig.RedisClusterAddrs,
 			})
 			e.ownStore = true
 		default:
@@ -108,6 +129,13 @@ func New(cfg Config, opts ...EngineOption) (*Engine, error) {
 		setter.SetClock(cfg.Clock)
 	}
 	e.cfg.Store = e.store
+	var onCbChange func(from, to CircuitState)
+	if ro, ok := e.metrics.(ReliabilityObserver); ok {
+		onCbChange = func(from, to CircuitState) {
+			ro.OnCircuitBreakerStateChanged(from.String(), to.String())
+		}
+	}
+	e.circuitBreaker = NewCircuitBreaker(cfg.CircuitBreaker, cfg.Clock, onCbChange)
 	e.admission = NewAdmissionEngine(cfg, e.store, cfg.Clock)
 	e.identity = NewIdentityResolver(cfg, e.store, cfg.Clock, e.tokenValidator, e.principalExtractor)
 	e.challenge = NewChallengeService(cfg, e.store, cfg.Clock)
@@ -136,25 +164,83 @@ func (e *Engine) Metrics() MetricsObserver {
 	return e.metrics
 }
 
+// CircuitBreaker returns the engine's internal storage circuit breaker.
+func (e *Engine) CircuitBreaker() *CircuitBreaker {
+	if e == nil {
+		return nil
+	}
+	return e.circuitBreaker
+}
+
 // Ping checks the health of the underlying store and engine subsystem.
 func (e *Engine) Ping(ctx context.Context) error {
 	if e == nil {
 		return ErrEngineNotInitialized
 	}
+	if e.closed.Load() {
+		return ErrStoreClosed
+	}
 	if e.store == nil {
 		return ErrStoreNotConfigured
 	}
+	if e.circuitBreaker != nil && e.circuitBreaker.State() == CircuitOpen {
+		return ErrCircuitOpen
+	}
 	if pinger, ok := e.store.(store.Pinger); ok {
-		return pinger.Ping(ctx)
+		err := pinger.Ping(ctx)
+		if e.circuitBreaker != nil {
+			e.circuitBreaker.report(err)
+		}
+		if ro, ok := e.metrics.(ReliabilityObserver); ok && err != nil {
+			ro.OnStoreError("ping", err)
+		}
+		return err
 	}
 	return nil
 }
 
-func (e *Engine) Close() error {
-	if e == nil || e.store == nil || !e.ownStore {
+// Shutdown gracefully stops the Engine by rejecting new requests, waiting for
+// active in-flight operations to complete up to ctx deadline, and closing the underlying store.
+func (e *Engine) Shutdown(ctx context.Context) error {
+	if e == nil {
 		return nil
 	}
-	return e.store.Close()
+	e.closeMu.Lock()
+	defer e.closeMu.Unlock()
+	if e.closed.Load() {
+		return nil
+	}
+	e.draining.Store(true)
+
+	done := make(chan struct{})
+	go func() {
+		e.inFlight.Wait()
+		close(done)
+	}()
+
+	var waitErr error
+	select {
+	case <-done:
+	case <-ctx.Done():
+		waitErr = ctx.Err()
+	}
+
+	e.closed.Store(true)
+	var storeErr error
+	if e.store != nil && e.ownStore {
+		storeErr = e.store.Close()
+	}
+
+	if waitErr != nil {
+		return waitErr
+	}
+	return storeErr
+}
+
+func (e *Engine) Close() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return e.Shutdown(ctx)
 }
 
 type RequestDecision struct {
@@ -179,16 +265,40 @@ func (e *Engine) authorizeRequest(ctx context.Context, r *http.Request, cost int
 	if e == nil || e.identity == nil || e.admission == nil {
 		return RequestDecision{}, ErrEngineNotInitialized
 	}
+	if e.draining.Load() || e.closed.Load() {
+		return RequestDecision{}, ErrStoreClosed
+	}
+	e.inFlight.Add(1)
+	defer e.inFlight.Done()
+
 	if r == nil {
 		return RequestDecision{}, ErrInvalidSession
 	}
+
+	var reportCb func(err error)
+	if e.circuitBreaker != nil {
+		var cbErr error
+		reportCb, cbErr = e.circuitBreaker.Allow()
+		if cbErr != nil {
+			return RequestDecision{}, e.handleBackendError(cbErr, true)
+		}
+	}
+	var lastStoreErr error
+	defer func() {
+		if reportCb != nil {
+			reportCb(lastStoreErr)
+		}
+	}()
+
 	id, sess, err := e.identity.ResolveWithSession(r)
 	if err != nil {
-		return RequestDecision{Identity: id}, err
+		lastStoreErr = err
+		return RequestDecision{Identity: id}, e.handleBackendError(err, true)
 	}
 	if id.Kind == IdentityAuthenticated || id.Kind == IdentityAPIToken {
 		rl, err := e.rateLimiter.Allow(ctx, id, r.Method+":"+r.URL.Path, cost)
 		if err != nil {
+			lastStoreErr = err
 			if errors.Is(err, ErrRateLimited) && e.metrics != nil {
 				e.metrics.OnRateLimited(id.Kind)
 			}
@@ -206,6 +316,7 @@ func (e *Engine) authorizeRequest(ctx context.Context, r *http.Request, cost int
 		var rlErr error
 		rl, rlErr = e.rateLimiter.Allow(ctx, id, r.Method+":"+r.URL.Path, cost)
 		if rlErr != nil {
+			lastStoreErr = rlErr
 			if errors.Is(rlErr, ErrRateLimited) && e.metrics != nil {
 				e.metrics.OnRateLimited(id.Kind)
 			}
@@ -224,6 +335,7 @@ func (e *Engine) authorizeRequest(ctx context.Context, r *http.Request, cost int
 		sess, err = GetSession(ctx, e.store, id.SessionID)
 		if err != nil {
 			if !errors.Is(err, ErrInvalidSession) {
+				lastStoreErr = err
 				return RequestDecision{Identity: id}, e.handleBackendError(err, true)
 			}
 			// Invalid/missing cookie: rate limit against unassigned pool
@@ -231,6 +343,7 @@ func (e *Engine) authorizeRequest(ctx context.Context, r *http.Request, cost int
 			var rlErr error
 			rl, rlErr = e.rateLimiter.Allow(ctx, idGlobal, r.Method+":"+r.URL.Path, cost)
 			if rlErr != nil {
+				lastStoreErr = rlErr
 				if errors.Is(rlErr, ErrRateLimited) && e.metrics != nil {
 					e.metrics.OnRateLimited(idGlobal.Kind)
 				}
@@ -249,6 +362,7 @@ func (e *Engine) authorizeRequest(ctx context.Context, r *http.Request, cost int
 			var rlErr error
 			rl, rlErr = e.rateLimiter.Allow(ctx, id, r.Method+":"+r.URL.Path, cost)
 			if rlErr != nil {
+				lastStoreErr = rlErr
 				if errors.Is(rlErr, ErrRateLimited) && e.metrics != nil {
 					e.metrics.OnRateLimited(id.Kind)
 				}
@@ -260,6 +374,7 @@ func (e *Engine) authorizeRequest(ctx context.Context, r *http.Request, cost int
 		var rlErr error
 		rl, rlErr = e.rateLimiter.Allow(ctx, id, r.Method+":"+r.URL.Path, cost)
 		if rlErr != nil {
+			lastStoreErr = rlErr
 			if errors.Is(rlErr, ErrRateLimited) && e.metrics != nil {
 				e.metrics.OnRateLimited(id.Kind)
 			}
@@ -268,6 +383,7 @@ func (e *Engine) authorizeRequest(ctx context.Context, r *http.Request, cost int
 	}
 	dec, err := e.admission.EvaluateFresh(ctx, sess)
 	if err != nil {
+		lastStoreErr = err
 		return RequestDecision{Identity: id, Session: dec.Session, Admission: dec, RateLimit: rl}, e.handleBackendError(err, true)
 	}
 	result := RequestDecision{Identity: id, Session: dec.Session, Admission: dec, RateLimit: rl}
@@ -288,6 +404,7 @@ func (e *Engine) authorizeRequest(ctx context.Context, r *http.Request, cost int
 	if dec.State == StateChallengeRequired && e.cfg.Captcha.Enabled && dec.Session != nil {
 		ch, err := e.challenge.Issue(ctx, dec.Session.SessionID)
 		if err != nil {
+			lastStoreErr = err
 			return result, e.handleBackendError(err, true)
 		}
 		if e.metrics != nil {
@@ -303,6 +420,11 @@ func (e *Engine) handleBackendError(err error, critical bool) error {
 	if err == nil {
 		return nil
 	}
+	if isInfrastructureError(err) {
+		if ro, ok := e.metrics.(ReliabilityObserver); ok {
+			ro.OnStoreError("backend", err)
+		}
+	}
 	if !critical {
 		return nil
 	}
@@ -314,17 +436,42 @@ func (e *Engine) IssueChallenge(ctx context.Context, sessionID string) (*Captcha
 	if e == nil || e.challenge == nil {
 		return nil, ErrEngineNotInitialized
 	}
+	if e.draining.Load() || e.closed.Load() {
+		return nil, ErrStoreClosed
+	}
+	e.inFlight.Add(1)
+	defer e.inFlight.Done()
+
+	if e.circuitBreaker != nil && e.circuitBreaker.State() == CircuitOpen {
+		return nil, ErrCircuitOpen
+	}
 	ch, err := e.challenge.Issue(ctx, sessionID)
+	if e.circuitBreaker != nil {
+		e.circuitBreaker.report(err)
+	}
 	if err == nil && e.metrics != nil {
 		e.metrics.OnChallengeIssued()
 	}
 	return ch, err
 }
+
 func (e *Engine) ValidateChallenge(ctx context.Context, sessionID, answer string) error {
 	if e == nil || e.challenge == nil {
 		return ErrEngineNotInitialized
 	}
+	if e.draining.Load() || e.closed.Load() {
+		return ErrStoreClosed
+	}
+	e.inFlight.Add(1)
+	defer e.inFlight.Done()
+
+	if e.circuitBreaker != nil && e.circuitBreaker.State() == CircuitOpen {
+		return ErrCircuitOpen
+	}
 	err := e.challenge.Validate(ctx, sessionID, answer)
+	if e.circuitBreaker != nil {
+		e.circuitBreaker.report(err)
+	}
 	if e.metrics != nil {
 		if err != nil {
 			e.metrics.OnChallengeFailed()
@@ -412,6 +559,15 @@ func (e *Engine) RevokeSession(ctx context.Context, sessionID string) error {
 	if e == nil {
 		return ErrEngineNotInitialized
 	}
+	if e.draining.Load() || e.closed.Load() {
+		return ErrStoreClosed
+	}
+	e.inFlight.Add(1)
+	defer e.inFlight.Done()
+
+	if e.circuitBreaker != nil && e.circuitBreaker.State() == CircuitOpen {
+		return ErrCircuitOpen
+	}
 	if e.store == nil {
 		return ErrStoreNotConfigured
 	}
@@ -419,7 +575,11 @@ func (e *Engine) RevokeSession(ctx context.Context, sessionID string) error {
 	if clock == nil {
 		clock = RealClock{}
 	}
-	return RevokeSessionWithClock(ctx, e.store, sessionID, 5*time.Minute, clock)
+	err := RevokeSessionWithClock(ctx, e.store, sessionID, 5*time.Minute, clock)
+	if e.circuitBreaker != nil {
+		e.circuitBreaker.report(err)
+	}
+	return err
 }
 
 // RotateSession generates a fresh session identifier for an admitted session,
@@ -428,6 +588,15 @@ func (e *Engine) RotateSession(ctx context.Context, oldSessionID string) (*Sessi
 	if e == nil {
 		return nil, ErrEngineNotInitialized
 	}
+	if e.draining.Load() || e.closed.Load() {
+		return nil, ErrStoreClosed
+	}
+	e.inFlight.Add(1)
+	defer e.inFlight.Done()
+
+	if e.circuitBreaker != nil && e.circuitBreaker.State() == CircuitOpen {
+		return nil, ErrCircuitOpen
+	}
 	if e.store == nil {
 		return nil, ErrStoreNotConfigured
 	}
@@ -435,5 +604,9 @@ func (e *Engine) RotateSession(ctx context.Context, oldSessionID string) (*Sessi
 	if clock == nil {
 		clock = RealClock{}
 	}
-	return RotateSession(ctx, e.store, oldSessionID, e.cfg.SessionTTL, clock)
+	sess, err := RotateSession(ctx, e.store, oldSessionID, e.cfg.SessionTTL, clock)
+	if e.circuitBreaker != nil {
+		e.circuitBreaker.report(err)
+	}
+	return sess, err
 }

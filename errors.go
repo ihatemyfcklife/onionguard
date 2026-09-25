@@ -24,6 +24,7 @@ var (
 	// Engine & Configuration Sentinel Errors
 	ErrEngineNotInitialized = errors.New("onionguard: engine not initialized")
 	ErrStoreNotConfigured   = errors.New("onionguard: store not configured")
+	ErrCircuitOpen          = errors.New("onionguard: circuit breaker is open; service temporarily unavailable")
 )
 
 // Session & Admission Sentinel Errors
@@ -152,7 +153,7 @@ func ClientSafeError(err error) *AdmissionError {
 			Message:    "Challenge verification failed.",
 			Err:        err,
 		}
-	case errors.Is(err, ErrCapacityExceeded), errors.Is(err, ErrStoreUnavailable), errors.Is(err, ErrLockUnavailable), errors.Is(err, ErrStoreClosed):
+	case errors.Is(err, ErrCapacityExceeded), errors.Is(err, ErrStoreUnavailable), errors.Is(err, ErrLockUnavailable), errors.Is(err, ErrStoreClosed), errors.Is(err, ErrCircuitOpen):
 		return &AdmissionError{
 			StatusCode: 503,
 			Code:       "SERVICE_UNAVAILABLE",

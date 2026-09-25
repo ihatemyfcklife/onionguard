@@ -13,20 +13,24 @@ import (
 )
 
 type RedisConfig struct {
-	Addr          string
-	Password      string
-	DB            int
-	Prefix        string
-	DialTimeout   time.Duration
-	FailClosed    bool
-	MaxKeyBytes   int
-	MaxValueBytes int
-	PoolSize      int
-	MinIdleConns  int
-	MaxRetries    int
-	ReadTimeout   time.Duration
-	WriteTimeout  time.Duration
-	PoolTimeout   time.Duration
+	Addr             string
+	Password         string
+	DB               int
+	Prefix           string
+	DialTimeout      time.Duration
+	FailClosed       bool
+	MaxKeyBytes      int
+	MaxValueBytes    int
+	PoolSize         int
+	MinIdleConns     int
+	MaxRetries       int
+	ReadTimeout      time.Duration
+	WriteTimeout     time.Duration
+	PoolTimeout      time.Duration
+	SentinelAddrs    []string
+	SentinelMaster   string
+	SentinelPassword string
+	ClusterAddrs     []string
 }
 
 var (
@@ -87,15 +91,15 @@ return 1`)
 )
 
 type RedisStore struct {
-	client    *redis.Client
+	client    redis.UniversalClient
 	cfg       RedisConfig
 	closed    bool
 	closeOnce sync.Once
 }
 
 func NewRedisStore(cfg RedisConfig) (*RedisStore, error) {
-	if cfg.Addr == "" {
-		return nil, fmt.Errorf("onionguard: redis address is required")
+	if cfg.Addr == "" && len(cfg.SentinelAddrs) == 0 && len(cfg.ClusterAddrs) == 0 {
+		return nil, fmt.Errorf("onionguard: redis address, sentinel addresses, or cluster addresses are required")
 	}
 	if cfg.Prefix == "" {
 		cfg.Prefix = "onionguard:"
@@ -110,47 +114,99 @@ func NewRedisStore(cfg RedisConfig) (*RedisStore, error) {
 		cfg.MaxValueBytes = 65536
 	}
 
-	var opt *redis.Options
+	var uOpt *redis.UniversalOptions
 	if strings.HasPrefix(cfg.Addr, "redis://") || strings.HasPrefix(cfg.Addr, "rediss://") || strings.HasPrefix(cfg.Addr, "unix://") {
-		var err error
-		opt, err = redis.ParseURL(cfg.Addr)
+		opt, err := redis.ParseURL(cfg.Addr)
 		if err != nil {
 			return nil, fmt.Errorf("onionguard: invalid redis url: %w", err)
 		}
+		uOpt = &redis.UniversalOptions{
+			Addrs:        []string{opt.Addr},
+			Username:     opt.Username,
+			Password:     opt.Password,
+			DB:           opt.DB,
+			TLSConfig:    opt.TLSConfig,
+			DialTimeout:  opt.DialTimeout,
+			ReadTimeout:  opt.ReadTimeout,
+			WriteTimeout: opt.WriteTimeout,
+			PoolSize:     opt.PoolSize,
+			MinIdleConns: opt.MinIdleConns,
+			MaxRetries:   opt.MaxRetries,
+			PoolTimeout:  opt.PoolTimeout,
+		}
+	} else if len(cfg.ClusterAddrs) > 0 {
+		uOpt = &redis.UniversalOptions{
+			Addrs:        cfg.ClusterAddrs,
+			Password:     cfg.Password,
+			DialTimeout:  cfg.DialTimeout,
+			ReadTimeout:  cfg.ReadTimeout,
+			WriteTimeout: cfg.WriteTimeout,
+			PoolSize:     cfg.PoolSize,
+			MinIdleConns: cfg.MinIdleConns,
+			MaxRetries:   cfg.MaxRetries,
+			PoolTimeout:  cfg.PoolTimeout,
+		}
+	} else if len(cfg.SentinelAddrs) > 0 || cfg.SentinelMaster != "" {
+		addrs := cfg.SentinelAddrs
+		if len(addrs) == 0 && cfg.Addr != "" {
+			addrs = []string{cfg.Addr}
+		}
+		uOpt = &redis.UniversalOptions{
+			Addrs:            addrs,
+			MasterName:       cfg.SentinelMaster,
+			Password:         cfg.Password,
+			SentinelPassword: cfg.SentinelPassword,
+			DB:               cfg.DB,
+			DialTimeout:      cfg.DialTimeout,
+			ReadTimeout:      cfg.ReadTimeout,
+			WriteTimeout:     cfg.WriteTimeout,
+			PoolSize:         cfg.PoolSize,
+			MinIdleConns:     cfg.MinIdleConns,
+			MaxRetries:       cfg.MaxRetries,
+			PoolTimeout:      cfg.PoolTimeout,
+		}
 	} else {
-		opt = &redis.Options{
-			Addr:     cfg.Addr,
-			Password: cfg.Password,
-			DB:       cfg.DB,
+		uOpt = &redis.UniversalOptions{
+			Addrs:        []string{cfg.Addr},
+			Password:     cfg.Password,
+			DB:           cfg.DB,
+			DialTimeout:  cfg.DialTimeout,
+			ReadTimeout:  cfg.ReadTimeout,
+			WriteTimeout: cfg.WriteTimeout,
+			PoolSize:     cfg.PoolSize,
+			MinIdleConns: cfg.MinIdleConns,
+			MaxRetries:   cfg.MaxRetries,
+			PoolTimeout:  cfg.PoolTimeout,
 		}
 	}
-	if opt.DialTimeout <= 0 {
-		opt.DialTimeout = cfg.DialTimeout
+
+	if cfg.DialTimeout > 0 {
+		uOpt.DialTimeout = cfg.DialTimeout
 	}
 	if cfg.ReadTimeout > 0 {
-		opt.ReadTimeout = cfg.ReadTimeout
-	} else if opt.ReadTimeout <= 0 {
-		opt.ReadTimeout = cfg.DialTimeout
+		uOpt.ReadTimeout = cfg.ReadTimeout
+	} else if uOpt.ReadTimeout <= 0 && uOpt.DialTimeout > 0 {
+		uOpt.ReadTimeout = uOpt.DialTimeout
 	}
 	if cfg.WriteTimeout > 0 {
-		opt.WriteTimeout = cfg.WriteTimeout
-	} else if opt.WriteTimeout <= 0 {
-		opt.WriteTimeout = cfg.DialTimeout
+		uOpt.WriteTimeout = cfg.WriteTimeout
+	} else if uOpt.WriteTimeout <= 0 && uOpt.DialTimeout > 0 {
+		uOpt.WriteTimeout = uOpt.DialTimeout
 	}
 	if cfg.PoolSize > 0 {
-		opt.PoolSize = cfg.PoolSize
+		uOpt.PoolSize = cfg.PoolSize
 	}
 	if cfg.MinIdleConns > 0 {
-		opt.MinIdleConns = cfg.MinIdleConns
+		uOpt.MinIdleConns = cfg.MinIdleConns
 	}
 	if cfg.MaxRetries >= 0 {
-		opt.MaxRetries = cfg.MaxRetries
+		uOpt.MaxRetries = cfg.MaxRetries
 	}
 	if cfg.PoolTimeout > 0 {
-		opt.PoolTimeout = cfg.PoolTimeout
+		uOpt.PoolTimeout = cfg.PoolTimeout
 	}
 
-	c := redis.NewClient(opt)
+	c := redis.NewUniversalClient(uOpt)
 	return &RedisStore{client: c, cfg: cfg}, nil
 }
 
@@ -474,4 +530,12 @@ func (r *RedisStore) MoveSessionReservation(ctx context.Context, namespace, oldI
 		return ErrNotFound
 	}
 	return nil
+}
+
+// PoolStats returns Redis connection pool statistics for observability.
+func (r *RedisStore) PoolStats() *redis.PoolStats {
+	if r == nil || r.client == nil {
+		return nil
+	}
+	return r.client.PoolStats()
 }

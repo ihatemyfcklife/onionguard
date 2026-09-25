@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"math/big"
 	"time"
 
 	"onionguard/store"
@@ -44,10 +45,7 @@ func acquireLock(ctx context.Context, s store.Store, key string, ttl time.Durati
 		if ok {
 			return owner, nil
 		}
-		delay := 5 * time.Millisecond
-		if attempt > 20 {
-			delay = 15 * time.Millisecond
-		}
+		delay := calculateBackoffDelay(attempt)
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
@@ -62,6 +60,31 @@ func acquireLock(ctx context.Context, s store.Store, key string, ttl time.Durati
 		}
 	}
 	return nil, store.ErrLockUnavailable
+}
+
+func calculateBackoffDelay(attempt int) time.Duration {
+	const (
+		baseDelay = 4 * time.Millisecond
+		capDelay  = 50 * time.Millisecond
+		minDelay  = 1 * time.Millisecond
+	)
+	shift := attempt
+	if shift > 6 {
+		shift = 6
+	}
+	temp := baseDelay * (1 << shift)
+	if temp > capDelay {
+		temp = capDelay
+	}
+	limit := int64(temp - minDelay)
+	if limit <= 0 {
+		return minDelay
+	}
+	n, err := rand.Int(rand.Reader, big.NewInt(limit+1))
+	if err != nil {
+		return minDelay + time.Duration(attempt%10)*time.Millisecond
+	}
+	return minDelay + time.Duration(n.Int64())
 }
 
 func releaseLock(ctx context.Context, s store.Store, key string, owner []byte) error {
