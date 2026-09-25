@@ -1,4 +1,4 @@
-module onionguard
+module github.com/ihatemyfcklife/onionguard
 
 go 1.22
 

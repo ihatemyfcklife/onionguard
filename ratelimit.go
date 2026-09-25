@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"onionguard/store"
+	"github.com/ihatemyfcklife/onionguard/store"
 )
 
 type RateLimitResult struct {

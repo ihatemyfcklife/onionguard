@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"time"
 
-	"onionguard/store"
+	"github.com/ihatemyfcklife/onionguard/store"
 )
 
 const (

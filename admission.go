@@ -7,7 +7,7 @@ import (
 	"math"
 	"time"
 
-	"onionguard/store"
+	"github.com/ihatemyfcklife/onionguard/store"
 )
 
 type State string

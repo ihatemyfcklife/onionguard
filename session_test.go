@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"onionguard/store"
+	"github.com/ihatemyfcklife/onionguard/store"
 )
 
 func TestSession_10000_EntropyAndCollision(t *testing.T) {

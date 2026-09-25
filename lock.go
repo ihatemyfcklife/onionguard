@@ -7,7 +7,7 @@ import (
 	"math/big"
 	"time"
 
-	"onionguard/store"
+	"github.com/ihatemyfcklife/onionguard/store"
 )
 
 const admissionLockTTL = 10 * time.Second

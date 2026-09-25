@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"onionguard/store"
+	"github.com/ihatemyfcklife/onionguard/store"
 )
 
 func TestCircuitBreaker_TripsOpenOnThreshold(t *testing.T) {

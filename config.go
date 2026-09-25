@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"onionguard/store"
+	"github.com/ihatemyfcklife/onionguard/store"
 )
 
 // HeaderPolicy defines coexistence behavior for HTTP security headers.

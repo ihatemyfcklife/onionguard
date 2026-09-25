@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	og "onionguard"
+	og "github.com/ihatemyfcklife/onionguard"
 )
 
 func newTestEngine(t *testing.T) (*og.Engine, og.Config) {

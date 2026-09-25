@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"onionguard/store"
+	"github.com/ihatemyfcklife/onionguard/store"
 )
 
 func TestIdentity_PrioritySequence(t *testing.T) {

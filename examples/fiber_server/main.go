@@ -4,8 +4,8 @@ import (
 	"log"
 
 	"github.com/gofiber/fiber/v2"
-	og "onionguard"
-	ogfiber "onionguard/middleware/fiber"
+	og "github.com/ihatemyfcklife/onionguard"
+	ogfiber "github.com/ihatemyfcklife/onionguard/middleware/fiber"
 )
 
 func main() {

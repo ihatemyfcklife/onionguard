@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	og "onionguard"
+	og "github.com/ihatemyfcklife/onionguard"
 )
 
 func TestAudit_Middleware_ChallengeAlreadyAdmitted_Redirects(t *testing.T) {

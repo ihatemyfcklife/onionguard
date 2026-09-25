@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"onionguard/store"
+	"github.com/ihatemyfcklife/onionguard/store"
 )
 
 // IdentityKind classifies the confidence tier of a requesting entity.

@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"onionguard/store"
+	"github.com/ihatemyfcklife/onionguard/store"
 )
 
 // =============================================================================

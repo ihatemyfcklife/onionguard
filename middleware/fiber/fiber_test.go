@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
-	og "onionguard"
+	og "github.com/ihatemyfcklife/onionguard"
 )
 
 func TestFiberMiddlewareDirectAdmission(t *testing.T) {

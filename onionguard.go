@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"onionguard/store"
+	"github.com/ihatemyfcklife/onionguard/store"
 )
 
 type Engine struct {

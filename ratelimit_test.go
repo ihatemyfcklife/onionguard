@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"onionguard/store"
+	"github.com/ihatemyfcklife/onionguard/store"
 )
 
 func TestRateLimiterTokenBucketAndTTL(t *testing.T) {

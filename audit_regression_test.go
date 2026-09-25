@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"onionguard/store"
+	"github.com/ihatemyfcklife/onionguard/store"
 )
 
 func TestAudit_TokenValidatorPrincipalBound(t *testing.T) {

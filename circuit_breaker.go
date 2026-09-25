@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"onionguard/store"
+	"github.com/ihatemyfcklife/onionguard/store"
 )
 
 // CircuitState represents the current operating state of the CircuitBreaker.

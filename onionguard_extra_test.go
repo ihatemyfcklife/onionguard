@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"onionguard/store"
+	"github.com/ihatemyfcklife/onionguard/store"
 )
 
 func TestAdmission_MaxConcurrentSessionsBound(t *testing.T) {

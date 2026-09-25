@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"onionguard/store"
+	"github.com/ihatemyfcklife/onionguard/store"
 )
 
 // TestAdversarial_RotationResurrection_50ConcurrentRequests tests Task 1:

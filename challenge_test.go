@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"onionguard/store"
+	"github.com/ihatemyfcklife/onionguard/store"
 )
 
 func TestChallenge_IssueReuseValidate(t *testing.T) {

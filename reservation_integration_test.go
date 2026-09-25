@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"onionguard/store"
+	"github.com/ihatemyfcklife/onionguard/store"
 )
 
 // TestReservation_RevokeSession_ReleasesSlot verifies that RevokeSession

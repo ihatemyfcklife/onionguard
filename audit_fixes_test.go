@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"onionguard/store"
+	"github.com/ihatemyfcklife/onionguard/store"
 )
 
 func TestAudit_SessionCookie_RevokedOrExpired_ClearsCookie(t *testing.T) {

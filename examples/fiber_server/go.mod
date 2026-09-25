@@ -1,11 +1,11 @@
-module onionguard/examples/fiber_server
+module github.com/ihatemyfcklife/onionguard/examples/fiber_server
 
 go 1.22
 
 require (
 	github.com/gofiber/fiber/v2 v2.52.6
-	onionguard v0.0.0
-	onionguard/middleware/fiber v0.0.0
+	github.com/ihatemyfcklife/onionguard v0.0.0
+	github.com/ihatemyfcklife/onionguard/middleware/fiber v0.0.0
 )
 
 require (
@@ -25,6 +25,6 @@ require (
 	golang.org/x/sys v0.28.0 // indirect
 )
 
-replace onionguard => ../../
+replace github.com/ihatemyfcklife/onionguard => ../../
 
-replace onionguard/middleware/fiber => ../../middleware/fiber
+replace github.com/ihatemyfcklife/onionguard/middleware/fiber => ../../middleware/fiber

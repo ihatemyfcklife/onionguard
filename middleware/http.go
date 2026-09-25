@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	og "onionguard"
+	og "github.com/ihatemyfcklife/onionguard"
 )
 
 type Option func(*options)

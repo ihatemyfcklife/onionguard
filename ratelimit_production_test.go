@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"onionguard/store"
+	"github.com/ihatemyfcklife/onionguard/store"
 )
 
 // TestRateLimiter_GlobalIdentityEnforcementAcrossPaths verifies that

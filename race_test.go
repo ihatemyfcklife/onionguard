@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"onionguard/store"
+	"github.com/ihatemyfcklife/onionguard/store"
 )
 
 func TestRace_MemoryStoreTokenBucket(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"time"
 
-	"onionguard/store"
+	"github.com/ihatemyfcklife/onionguard/store"
 )
 
 // Storage Sentinel Errors (re-exported from store package for caller convenience)

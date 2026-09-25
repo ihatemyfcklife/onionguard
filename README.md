@@ -99,15 +99,15 @@ Traditional web application firewalls (Cloudflare, AWS WAF, Akamai, reCAPTCHA) r
 ### Standard Library (`net/http`)
 For pure Go standard library projects:
 ```bash
-go get onionguard
+go get github.com/ihatemyfcklife/onionguard
 ```
 *Zero external runtime dependencies when using `MemoryStore`.*
 
 ### Fiber v2 Framework
 If your application uses [GoFiber v2](https://github.com/gofiber/fiber), import the isolated submodule:
 ```bash
-go get onionguard
-go get onionguard/middleware/fiber
+go get github.com/ihatemyfcklife/onionguard
+go get github.com/ihatemyfcklife/onionguard/middleware/fiber
 ```
 
 *Requires **Go 1.22+**.*
@@ -126,8 +126,8 @@ import (
 	"net/http"
 	"time"
 
-	og "onionguard"
-	"onionguard/middleware"
+	og "github.com/ihatemyfcklife/onionguard"
+	"github.com/ihatemyfcklife/onionguard/middleware"
 )
 
 func main() {
@@ -179,8 +179,8 @@ import (
 	"log"
 
 	"github.com/gofiber/fiber/v2"
-	og "onionguard"
-	ogfiber "onionguard/middleware/fiber"
+	og "github.com/ihatemyfcklife/onionguard"
+	ogfiber "github.com/ihatemyfcklife/onionguard/middleware/fiber"
 )
 
 func main() {

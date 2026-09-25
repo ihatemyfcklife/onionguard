@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	og "onionguard"
+	og "github.com/ihatemyfcklife/onionguard"
 )
 
 // TestDeepLink_PreservesTargetURL_FullFlow verifies that an unadmitted client requesting a deep link

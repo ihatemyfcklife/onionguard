@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	og "onionguard"
-	"onionguard/middleware"
+	og "github.com/ihatemyfcklife/onionguard"
+	"github.com/ihatemyfcklife/onionguard/middleware"
 )
 
 func main() {

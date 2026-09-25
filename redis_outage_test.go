@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"onionguard/store"
+	"github.com/ihatemyfcklife/onionguard/store"
 )
 
 // TestRedisOutagePolicies exercises the real go-redis client against a refused
