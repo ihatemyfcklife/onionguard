@@ -4,8 +4,8 @@ go 1.22
 
 require (
 	github.com/gofiber/fiber/v2 v2.52.6
-	github.com/ihatemyfcklife/onionguard v1.0.1
-	github.com/ihatemyfcklife/onionguard/middleware/fiber v1.0.1
+	github.com/ihatemyfcklife/onionguard v1.0.2
+	github.com/ihatemyfcklife/onionguard/middleware/fiber v1.0.2
 )
 
 require (
