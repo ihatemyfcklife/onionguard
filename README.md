@@ -1,6 +1,8 @@
 <div align="center">
 
-# OnionGuard
+<img src="assets/logo.png" alt="OnionGuard" width="800">
+
+<br>
 
 **Production-grade, zero-trust HTTP admission-control engine for anonymous services & Tor Onion Services.**
 
