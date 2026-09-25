@@ -21,7 +21,7 @@
   <a href="#configuration--options">Configuration</a> •
   <a href="#production-readiness--security-hardening">Production Readiness</a> •
   <a href="#tor-deployment-guide">Tor Deployment</a> •
-  <a href="#health-checks--monitoring">Monitoring</a>
+  <a href="#examples--showcase-templates">Examples</a>
 </p>
 
 </div>
@@ -46,7 +46,7 @@ Traditional web application firewalls (Cloudflare, AWS WAF, Akamai, reCAPTCHA) r
 - **High Performance & Low Latency** — Optimized single store lookup per admitted request (`EvaluateFresh`), slashing Redis overhead by **66%**.
 - **100% Zero-JavaScript** — Built-in pure Go bitmap CAPTCHA generator (with OCR-resistant sine wave interference & character slant) and `<meta http-equiv="refresh">` proof-of-patience wait room. Works flawlessly in Tor Browser *Safest* mode.
 - **Cryptographic Session Security** — 256-bit cryptographically secure session tokens (`crypto/rand`), atomic rotation under distributed lock, automatic stale cookie purging (`MaxAge: -1`), and absolute lifetime ceilings.
-- **Zero Dependency Pollution** — Modular architecture: core library has zero external dependencies (aside from official `go-redis/v9`). Fiber v2 adapter is isolated in its own sub-module (`onionguard/middleware/fiber`).
+- **Zero Dependency Pollution** — Modular architecture: core library has zero external dependencies (aside from official `go-redis/v9`). Fiber v2 adapter is isolated in its own sub-module (`github.com/ihatemyfcklife/onionguard/middleware/fiber`).
 - **Multi-Tier Token-Bucket Rate Limiter** — Independent quotas per tier (anonymous, authenticated, API token, challenge, and first-contact visitor pool) backed by in-memory atomics or Redis Lua scripts.
 - **Anti-Bot Expulsion** — Attackers exhausting CAPTCHA attempts (`MaxAttempts`) are automatically demoted back to `StateWaiting` with reset wait timers.
 - **Anonymity-Preserving Observability** — Built-in Prometheus-compatible metric hooks (`MetricsObserver`) and Kubernetes readiness probe support (`Ping(ctx)`).
@@ -516,9 +516,20 @@ go test -v -run TestRedis ./store
 
 ---
 
-## Examples Directory
+## Examples & Showcase Templates
 
-Explore the complete runnable server examples included in the repository:
+### 🌟 Production Showcase Template
+
+Looking for a complete, production-ready implementation? Check out the **[OnionGuard Filehost Template](https://github.com/ihatemyfcklife/onionguard-filehost-template)**:
+
+- **End-to-End Tor Service**: A complete, sovereign, zero-JavaScript anonymous file-hosting web service.
+- **Real-World Integration**: Demonstrates production-grade file upload protection, multi-tier rate limiting, zero-JS wait rooms, and server-rendered CAPTCHAs.
+- **Ready to Deploy**: Pre-configured with Tor daemon integration and Docker deployment scripts.
+- **GitHub Repository**: **[https://github.com/ihatemyfcklife/onionguard-filehost-template](https://github.com/ihatemyfcklife/onionguard-filehost-template)**
+
+### In-Repository Minimal Examples
+
+Explore the runnable server examples included directly in this repository:
 
 - [`examples/std_server/`](examples/std_server/main.go) — Standard `net/http` server with default settings.
 - [`examples/fiber_server/`](examples/fiber_server/main.go) — High-performance GoFiber v2 integration.
