@@ -21,7 +21,8 @@
   <a href="#configuration--options">Configuration</a> •
   <a href="#production-readiness--security-hardening">Production Readiness</a> •
   <a href="#tor-deployment-guide">Tor Deployment</a> •
-  <a href="#examples--showcase-templates">Examples</a>
+  <a href="#examples--showcase-templates">Examples</a> •
+  <a href="#automated-releases--versioning">Releases</a>
 </p>
 
 </div>
@@ -518,7 +519,7 @@ go test -v -run TestRedis ./store
 
 ## Examples & Showcase Templates
 
-### 🌟 Production Showcase Template
+### Production Showcase Template
 
 Looking for a complete, production-ready implementation? Check out the **[OnionGuard Filehost Template](https://github.com/ihatemyfcklife/onionguard-filehost-template)**:
 
@@ -534,6 +535,25 @@ Explore the runnable server examples included directly in this repository:
 - [`examples/std_server/`](examples/std_server/main.go) — Standard `net/http` server with default settings.
 - [`examples/fiber_server/`](examples/fiber_server/main.go) — High-performance GoFiber v2 integration.
 - [`examples/dark_theme/`](examples/dark_theme/main.go) — Terminal dark-theme UI with custom neon CAPTCHA styling.
+
+---
+
+## Automated Releases & Versioning
+
+OnionGuard uses automated semantic versioning and module publishing via GitHub Actions on every push to `main`:
+
+- **Minor Version Bump** (e.g., `v1.1.0`): When the commit message contains `feat:`.
+- **Major Version Bump** (e.g., `v2.0.0`): When the commit message contains `BREAKING CHANGE:` or `feat!:`.
+- **Patch Version Bump** (e.g., `v1.0.5`): For all other commits (`fix:`, `docs:`, `chore:`, or standard commit messages).
+- **Skip Release**: Add `[skip release]` or `[no-tag]` to the commit message to skip automated tagging and publishing.
+
+> [!NOTE]
+> **Note personnelle / Maintainer note :**
+> À chaque fois que vous pusherez du code sur la branche `main` :
+> - Si votre message contient `feat:` : La version mineure sera incrémentée (ex. `v1.1.0`).
+> - Si votre message contient `BREAKING CHANGE:` ou `feat!:` : La version majeure sera incrémentée (ex. `v2.0.0`).
+> - Pour tout autre commit (`fix:`, `docs:`, `chore:`, ou texte libre) : La version patch sera incrémentée (ex. `v1.0.5`).
+> - Si vous ne souhaitez pas créer de version/tag pour un commit spécifique, ajoutez simplement `[skip release]` ou `[no-tag]` dans votre message de commit.
 
 ---
 
