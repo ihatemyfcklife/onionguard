@@ -548,12 +548,12 @@ OnionGuard uses automated semantic versioning and module publishing via GitHub A
 - **Skip Release**: Add `[skip release]` or `[no-tag]` to the commit message to skip automated tagging and publishing.
 
 > [!NOTE]
-> **Note personnelle / Maintainer note :**
-> À chaque fois que vous pusherez du code sur la branche `main` :
-> - Si votre message contient `feat:` : La version mineure sera incrémentée (ex. `v1.1.0`).
-> - Si votre message contient `BREAKING CHANGE:` ou `feat!:` : La version majeure sera incrémentée (ex. `v2.0.0`).
-> - Pour tout autre commit (`fix:`, `docs:`, `chore:`, ou texte libre) : La version patch sera incrémentée (ex. `v1.0.5`).
-> - Si vous ne souhaitez pas créer de version/tag pour un commit spécifique, ajoutez simplement `[skip release]` ou `[no-tag]` dans votre message de commit.
+> **Maintainer Note:**
+> Every time code is pushed to the `main` branch:
+> - If the commit message contains `feat:`, the **minor** version will be incremented (e.g. `v1.1.0`).
+> - If the commit message contains `BREAKING CHANGE:` or `feat!:`, the **major** version will be incremented (e.g. `v2.0.0`).
+> - For any other commit (`fix:`, `docs:`, `chore:`, or freeform text), the **patch** version will be incremented (e.g. `v1.0.5`).
+> - If you do not wish to create a release tag for a specific commit, simply add `[skip release]` or `[no-tag]` anywhere in your commit message.
 
 ---
 
