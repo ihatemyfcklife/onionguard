@@ -165,11 +165,22 @@
     }
 
     .brand-logo-img {
-      height: 32px;
+      height: 36px;
       width: auto;
-      max-width: 175px;
+      max-width: 185px;
       object-fit: contain;
       display: block;
+      background: #09090b;
+      border: 1px solid var(--border-medium);
+      border-radius: 8px;
+      padding: 3px 8px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .brand-logo-img:hover {
+      border-color: var(--accent-emerald);
+      box-shadow: 0 0 14px var(--accent-emerald-dim);
     }
 
     .nav-links {
@@ -221,19 +232,37 @@
       position: relative;
     }
 
-    .hero-logo-banner {
-      margin-bottom: 2.25rem;
+    .hero-logo-frame {
+      display: inline-block;
+      width: 100%;
       max-width: 680px;
+      margin-bottom: 2.25rem;
+      background: #09090b;
+      border: 1px solid var(--border-medium);
+      border-radius: 14px;
+      padding: 10px 14px;
+      box-shadow:
+        0 12px 32px rgba(0, 0, 0, 0.6),
+        0 0 24px rgba(0, 255, 128, 0.12),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.2s ease;
+      overflow: hidden;
     }
 
-    .hero-logo-banner img {
+    .hero-logo-frame:hover {
+      border-color: var(--accent-emerald-border);
+      box-shadow:
+        0 16px 40px rgba(0, 0, 0, 0.75),
+        0 0 32px rgba(0, 255, 128, 0.22),
+        inset 0 1px 0 rgba(0, 255, 128, 0.15);
+      transform: translateY(-2px);
+    }
+
+    .hero-logo-frame img {
       width: 100%;
       height: auto;
-      max-height: 140px;
-      object-fit: contain;
-      object-position: left center;
       display: block;
-      filter: drop-shadow(0 0 24px rgba(0, 255, 128, 0.18));
+      border-radius: 8px;
     }
 
     .hero-pretitle {
@@ -951,7 +980,7 @@
        ========================================== -->
   <header class="hero">
     <div class="container">
-      <div class="hero-logo-banner">
+      <div class="hero-logo-frame">
         <img src="assets/logo.png" alt="OnionGuard" width="800">
       </div>
 
