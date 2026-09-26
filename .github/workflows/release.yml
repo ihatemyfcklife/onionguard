@@ -1,0 +1,151 @@
+name: CI & Auto Release
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Run Tests & Race Detector
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          check-latest: true
+
+      - name: Verify Root Module Dependencies
+        run: |
+          go mod verify
+
+      - name: Run Core Tests (Race Detector Enabled)
+        run: |
+          go test -v -race ./...
+
+      - name: Run Fiber Middleware Tests (Race Detector Enabled)
+        run: |
+          cd middleware/fiber
+          go mod verify
+          go test -v -race ./...
+
+  release:
+    name: Tag & Publish Go Module
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code with Full History
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine Next Semantic Version & Tag
+        id: semver
+        run: |
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          echo "Commit message: $COMMIT_MSG"
+
+          # Check for skip directives
+          if echo "$COMMIT_MSG" | grep -iqE "\[skip release\]|\[skip tag\]|\[no-tag\]"; then
+            echo "Skip directive detected in commit message. Skipping release."
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Check if HEAD is already tagged
+          if git tag --points-at HEAD | grep -q "^v[0-9]"; then
+            echo "HEAD is already tagged with a semantic release. Skipping."
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Find the latest tag
+          LATEST_TAG=$(git tag -l "v[0-9]*.[0-9]*.[0-9]*" | sort -V | tail -n1)
+          if [ -z "$LATEST_TAG" ]; then
+            LATEST_TAG="v1.0.0"
+          fi
+          echo "Latest tag: $LATEST_TAG"
+
+          VERSION="${LATEST_TAG#v}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+
+          # Semantic versioning calculation based on commit message
+          if echo "$COMMIT_MSG" | grep -iqE "breaking change|(\w+)(\(.*\))?!:"; then
+            NEW_MAJOR=$((MAJOR + 1))
+            NEW_MINOR=0
+            NEW_PATCH=0
+            BUMP_TYPE="major"
+          elif echo "$COMMIT_MSG" | grep -iqE "^feat(\(.*\))?:"; then
+            NEW_MAJOR=$MAJOR
+            NEW_MINOR=$((MINOR + 1))
+            NEW_PATCH=0
+            BUMP_TYPE="minor"
+          else
+            NEW_MAJOR=$MAJOR
+            NEW_MINOR=$MINOR
+            NEW_PATCH=$((PATCH + 1))
+            BUMP_TYPE="patch"
+          fi
+
+          NEW_TAG="v${NEW_MAJOR}.${NEW_MINOR}.${NEW_PATCH}"
+          echo "Bumping $BUMP_TYPE: $LATEST_TAG -> $NEW_TAG"
+
+          # Configure Git Author
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Create Annotated Tags for Root and Fiber Submodule
+          git tag -a "${NEW_TAG}" -m "Release ${NEW_TAG}"
+          git tag -a "middleware/fiber/${NEW_TAG}" -m "Release middleware/fiber/${NEW_TAG}"
+
+          # Push Tags to Origin
+          git push origin "${NEW_TAG}" "middleware/fiber/${NEW_TAG}"
+
+          echo "skipped=false" >> "$GITHUB_OUTPUT"
+          echo "tag=${NEW_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        if: steps.semver.outputs.skipped != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.semver.outputs.tag }}"
+          echo "Creating GitHub Release for $TAG..."
+          gh release create "$TAG" \
+            --title "Release $TAG" \
+            --generate-notes
+
+      - name: Warm up Go Proxy & pkg.go.dev
+        if: steps.semver.outputs.skipped != 'true'
+        run: |
+          TAG="${{ steps.semver.outputs.tag }}"
+          echo "Triggering Go proxy indexation for $TAG..."
+
+          for i in {1..6}; do
+            HTTP_ROOT=$(curl -s -o /dev/null -w "%{http_code}" "https://proxy.golang.org/github.com/ihatemyfcklife/onionguard/@v/${TAG}.info" || true)
+            HTTP_FIBER=$(curl -s -o /dev/null -w "%{http_code}" "https://proxy.golang.org/github.com/ihatemyfcklife/onionguard/middleware/fiber/@v/${TAG}.info" || true)
+            echo "Attempt $i: root status=$HTTP_ROOT, fiber submodule status=$HTTP_FIBER"
+
+            if [ "$HTTP_ROOT" = "200" ] && [ "$HTTP_FIBER" = "200" ]; then
+              echo "Both modules successfully indexed on proxy.golang.org!"
+              break
+            fi
+            sleep 5
+          done
+
+          # Trigger documentation indexing on pkg.go.dev
+          curl -s "https://pkg.go.dev/github.com/ihatemyfcklife/onionguard@${TAG}" > /dev/null || true
+          curl -s "https://pkg.go.dev/github.com/ihatemyfcklife/onionguard/middleware/fiber@${TAG}" > /dev/null || true
+          echo "Triggered pkg.go.dev documentation build."
