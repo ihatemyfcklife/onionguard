@@ -193,6 +193,7 @@ type Config struct {
 	CustomWaitRoomHTML  func(r *http.Request, retryAfter time.Duration) string
 	CustomChallengeHTML func(r *http.Request, ch *CaptchaChallenge, cfg CaptchaConfig) string
 	CustomErrorHTML     func(r *http.Request, err *AdmissionError) string
+	CustomSuccessHTML   func(r *http.Request, target string) string
 
 	// Deterministic Clock Abstraction
 	Clock Clock

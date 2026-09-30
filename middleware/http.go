@@ -223,7 +223,11 @@ func handleChallengeHTTP(engine *og.Engine, cfg og.Config, w http.ResponseWriter
 	}
 	og.ApplyNoStore(w.Header())
 	if acceptsHTML(r) {
-		renderCustomHTML(w, http.StatusOK, 0, fmt.Sprintf(`<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="1;url=%s"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'"><title>Admitted</title><style>body{background:#f8f9fa;color:#212529;font-family:system-ui,-apple-system,sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0}.box{border:1px solid #dee2e6;background:#fff;padding:2rem;border-radius:6px;text-align:center;box-shadow:0 2px 4px rgba(0,0,0,0.05);max-width:360px}h1{font-size:1.25rem;margin:0 0 .5rem}p{margin:0;color:#28a745}</style></head><body><main class="box"><h1>Verification Successful</h1><p>Admission granted. Redirecting...</p></main></body></html>`, html.EscapeString(target)))
+		body := fmt.Sprintf(`<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="1;url=%s"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'"><title>Admitted</title><style>body{background:#f8f9fa;color:#212529;font-family:system-ui,-apple-system,sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0}.box{border:1px solid #dee2e6;background:#fff;padding:2rem;border-radius:6px;text-align:center;box-shadow:0 2px 4px rgba(0,0,0,0.05);max-width:360px}h1{font-size:1.25rem;margin:0 0 .5rem}p{margin:0;color:#28a745}</style></head><body><main class="box"><h1>Verification Successful</h1><p>Admission granted. Redirecting...</p></main></body></html>`, html.EscapeString(target))
+		if cfg.CustomSuccessHTML != nil {
+			body = cfg.CustomSuccessHTML(r, target)
+		}
+		renderCustomHTML(w, http.StatusOK, 0, body)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
