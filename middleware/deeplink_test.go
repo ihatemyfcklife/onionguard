@@ -56,14 +56,14 @@ func TestDeepLink_PreservesTargetURL_FullFlow(t *testing.T) {
 	if rr1.Code != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d", rr1.Code)
 	}
-	if !strings.Contains(rr1.Body.String(), `<input type="hidden" name="target" value="/protected/doc?section=3">`) {
+	if !strings.Contains(rr1.Body.String(), `<input type="hidden" name="r" value="/protected/doc?section=3">`) {
 		t.Fatalf("target was not embedded in CAPTCHA form: %s", rr1.Body.String())
 	}
 
-	// Step 2: Submit POST /onionguard/challenge with answer="AAAAA" and target="/protected/doc?section=3"
+	// Step 2: Submit POST /onionguard/challenge with answer="AAAAA" and r="/protected/doc?section=3"
 	form := url.Values{}
 	form.Set("answer", "AAAAA")
-	form.Set("target", deepURL)
+	form.Set("r", deepURL)
 	req2 := httptest.NewRequest("POST", "/onionguard/challenge", strings.NewReader(form.Encode()))
 	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req2.Header.Set("Accept", "text/html")
@@ -71,12 +71,11 @@ func TestDeepLink_PreservesTargetURL_FullFlow(t *testing.T) {
 	rr2 := httptest.NewRecorder()
 	handler.ServeHTTP(rr2, req2)
 
-	if rr2.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK verification, got %d: %s", rr2.Code, rr2.Body.String())
+	if rr2.Code != http.StatusFound {
+		t.Fatalf("expected 302 Found verification, got %d: %s", rr2.Code, rr2.Body.String())
 	}
-	expectedRefresh := `<meta http-equiv="refresh" content="1;url=/protected/doc?section=3">`
-	if !strings.Contains(rr2.Body.String(), expectedRefresh) {
-		t.Fatalf("expected refresh to target deep URL, got:\n%s", rr2.Body.String())
+	if loc := rr2.Header().Get("Location"); loc != deepURL {
+		t.Fatalf("expected redirect Location %q, got %q", deepURL, loc)
 	}
 
 	// Step 3: Now that session is admitted, verify GET /onionguard/challenge redirects to target

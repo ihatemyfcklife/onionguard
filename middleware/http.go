@@ -249,6 +249,12 @@ func handleChallengeHTTP(engine *og.Engine, cfg og.Config, w http.ResponseWriter
 			}
 		}
 
+		// Custom success page takes precedence when configured.
+		if cfg.CustomSuccessHTML != nil {
+			renderCustomHTML(w, http.StatusOK, 0, cfg.CustomSuccessHTML(r, redirectTarget))
+			return
+		}
+
 		// Redirect to the original URL
 		http.Redirect(w, r, redirectTarget, http.StatusFound)
 		return
