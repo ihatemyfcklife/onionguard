@@ -3,8 +3,6 @@ package middleware
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
-	"html"
 	"io"
 	"net/http"
 	"strconv"
@@ -134,9 +132,17 @@ func handleChallengeHTTP(engine *og.Engine, cfg og.Config, w http.ResponseWriter
 	target := "/"
 	if r != nil {
 		if r.Method == http.MethodGet && r.URL != nil {
-			target = sanitizeRedirectTarget(r.URL.Query().Get("target"))
+			if raw := r.URL.Query().Get("r"); raw != "" {
+				target = sanitizeRedirectTarget(raw)
+			} else {
+				target = sanitizeRedirectTarget(r.URL.Query().Get("target"))
+			}
 		} else {
-			target = sanitizeRedirectTarget(r.FormValue("target"))
+			if raw := r.FormValue("r"); raw != "" {
+				target = sanitizeRedirectTarget(raw)
+			} else {
+				target = sanitizeRedirectTarget(r.FormValue("target"))
+			}
 		}
 	}
 	sess, sessErr := og.GetSession(r.Context(), engine.Store(), id)
@@ -223,11 +229,28 @@ func handleChallengeHTTP(engine *og.Engine, cfg og.Config, w http.ResponseWriter
 	}
 	og.ApplyNoStore(w.Header())
 	if acceptsHTML(r) {
-		body := fmt.Sprintf(`<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="1;url=%s"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'"><title>Admitted</title><style>body{background:#f8f9fa;color:#212529;font-family:system-ui,-apple-system,sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0}.box{border:1px solid #dee2e6;background:#fff;padding:2rem;border-radius:6px;text-align:center;box-shadow:0 2px 4px rgba(0,0,0,0.05);max-width:360px}h1{font-size:1.25rem;margin:0 0 .5rem}p{margin:0;color:#28a745}</style></head><body><main class="box"><h1>Verification Successful</h1><p>Admission granted. Redirecting...</p></main></body></html>`, html.EscapeString(target))
-		if cfg.CustomSuccessHTML != nil {
-			body = cfg.CustomSuccessHTML(r, target)
+		// In the CAPTCHA validation handler
+		redirectTarget := r.FormValue("r")
+		if redirectTarget == "" {
+			redirectTarget = r.FormValue("target")
 		}
-		renderCustomHTML(w, http.StatusOK, 0, body)
+
+		// Open Redirect protection (must start with / and not //)
+		if redirectTarget == "" || !strings.HasPrefix(redirectTarget, "/") || strings.HasPrefix(redirectTarget, "//") {
+			redirectTarget = "/"
+		} else {
+			redirectTarget = sanitizeRedirectTarget(redirectTarget)
+		}
+
+		// Persist the session / access cookie
+		if sess, sessErr := og.GetSession(r.Context(), engine.Store(), id); sessErr == nil && sess != nil {
+			if c := engine.SessionCookie(sess); c != nil {
+				http.SetCookie(w, c)
+			}
+		}
+
+		// Redirect to the original URL
+		http.Redirect(w, r, redirectTarget, http.StatusFound)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -245,7 +268,11 @@ func writeChallengeResponse(w http.ResponseWriter, r *http.Request, ch *og.Captc
 		if r.URL != nil && r.URL.Path != cfg.Captcha.EndpointPath {
 			target = sanitizeRedirectTarget(r.RequestURI)
 		} else {
-			target = sanitizeRedirectTarget(r.FormValue("target"))
+			if raw := r.FormValue("r"); raw != "" {
+				target = sanitizeRedirectTarget(raw)
+			} else {
+				target = sanitizeRedirectTarget(r.FormValue("target"))
+			}
 		}
 	}
 	if strings.Contains(r.Header.Get("Accept"), "application/json") && !acceptsHTML(r) {

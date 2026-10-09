@@ -257,7 +257,7 @@ func RenderCaptchaHTMLWithTarget(ch *CaptchaChallenge, cfg CaptchaConfig, target
 	}
 	targetField := ""
 	if target != "" {
-		targetField = fmt.Sprintf(`<input type="hidden" name="target" value="%s">`, html.EscapeString(target))
+		targetField = fmt.Sprintf(`<input type="hidden" name="r" value="%s">`, html.EscapeString(target))
 	}
 	return fmt.Sprintf(`<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"><title>Challenge</title></head><body><main><h1>Verification</h1><img alt="CAPTCHA" src="%s"><form method="post" action="%s">%s<label for="answer">Answer</label><input id="answer" name="answer" maxlength="%d" required autocomplete="off"><button type="submit">Continue</button></form></main></body></html>`, ch.ImageDataURI, html.EscapeString(cfg.EndpointPath), targetField, cfg.Length)
 }
